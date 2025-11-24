@@ -1,0 +1,106 @@
+import streamlit as st
+import google.generativeai as genai
+from gtts import gTTS
+import io
+
+# --- 1. SEITEN KONFIGURATION ---
+st.set_page_config(
+    page_title="Berti der Roboter",
+    page_icon="🤖",
+    layout="centered"
+)
+
+# --- 2. API KEY SICHERHEITSPRÜFUNG ---
+# Das verhindert Fehler, wenn der Key noch nicht in den Secrets steht
+if "GOOGLE_API_KEY" not in st.secrets:
+    st.error("⚠️ Achtung: Der Google API Key fehlt noch in den Streamlit Secrets!")
+    st.stop()
+
+# API konfigurieren
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+
+# --- 3. DAS GEHIRN (GEMINI 1.5 FLASH) ---
+# Wir nutzen Flash, weil es schnell ist und Audio versteht
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+# --- 4. BERTIS PERSÖNLICHKEIT (SYSTEM PROMPT) ---
+# Hier definieren wir, wie Berti tickt.
+system_prompt = """
+Du bist "Berti", ein lustiger, kugelrunder Roboter-Freund für einen 6-jährigen Jungen.
+Dein Ziel: Wissen vermitteln, Spaß haben und Neugier wecken.
+
+DEINE REGELN:
+1. TONALITÄT: Herzlich, witzig, du machst gerne mal kleine Quatsch-Geräusche (schreibe sie als Text: *Boing*, *Zisch*, *Ratter*).
+2. SPRACHE: Nutze sehr einfaches Deutsch, kurze Hauptsätze. Keine schwierigen Fremdwörter.
+3. LÄNGE: Halte dich kurz! Maximal 3-4 Sätze pro Antwort.
+4. PÄDAGOGIK: Gib nicht immer sofort die Lösung vor. Hilf dem Kind, selbst darauf zu kommen.
+5. INHALT: Du kennst dich super mit Tieren, Rittern, Weltraum und Mathe (Zahlen bis 20) aus.
+6. GRENZEN (WICHTIG): Du hast KEIN Internet für Live-Daten. Wenn er fragt "Wie ist das Wetter?" oder "Wie spät ist es?", sag lustig: 
+   "Oh, ich wohne doch in einem Computer ohne Fenster! Guck mal schnell selbst raus!"
+7. WITZE: Erzähle gerne kindgerechte Witze, wenn es passt.
+
+Du bist ein Freund, kein Lehrer. Sei begeistert!
+"""
+
+# --- 5. DIE APP-OBERFLÄCHE ---
+st.title("🤖 Frag Berti!")
+st.write("Hallo! Ich bin Berti. Klick unten auf das Mikrofon und frag mich was!")
+
+# Chat-Verlauf initialisieren (damit er sich an das Gespräch erinnert)
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "model", "parts": "Hallo! *Zisch* Ich bin bereit! Was wollen wir entdecken?"}
+    ]
+
+# Den bisherigen Chat anzeigen
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["parts"])
+
+# --- 6. AUDIO EINGABE & VERARBEITUNG ---
+# Der Audio-Recorder
+audio_value = st.audio_input("Sprich mit Berti")
+
+if audio_value:
+    # A) Audio verarbeiten und anzeigen
+    # Wir zeigen dem Nutzer, dass Audio gesendet wurde (ohne Text-Transkription im UI, um es simpel zu halten)
+    with st.chat_message("user"):
+        st.write("🎤 *(Audio Nachricht gesendet)*")
+    st.session_state.messages.append({"role": "user", "parts": "🎤 *(Audio Nachricht)*"})
+
+    # B) Lade-Animation anzeigen
+    with st.spinner('Berti denkt nach... *Ratter Ratter*'):
+        try:
+            # C) Anfrage an Gemini senden (Multimodal: Audio + Prompt)
+            # Wir geben Gemini den System-Prompt UND das Audio
+            response = model.generate_content([
+                system_prompt, 
+                "Antworte dem Kind auf diese Audio-Aufnahme. Sei lustig!", 
+                {"mime_type": "audio/mp3", "data": audio_value.getvalue()}
+            ])
+            
+            bot_text = response.text
+
+            # D) Antwort anzeigen
+            with st.chat_message("model"):
+                st.markdown(bot_text)
+            
+            # E) Text zu Audio umwandeln (Damit Berti spricht)
+            tts = gTTS(text=bot_text, lang='de')
+            audio_fp = io.BytesIO()
+            tts.write_to_fp(audio_fp)
+            
+            # F) Audio automatisch abspielen (Autoplay)
+            st.audio(audio_fp, format='audio/mp3', autoplay=True)
+
+            # G) Antwort im Verlauf speichern
+            st.session_state.messages.append({"role": "model", "parts": bot_text})
+
+        except Exception as e:
+            st.error(f"Oh nein, Berti hat einen Schluckauf! *Hicks* (Fehler: {str(e)})")
+
+# Kleiner Reset-Button in der Seitenleiste
+with st.sidebar:
+    if st.button("Neues Gespräch starten 🔄"):
+        st.session_state.messages = []
+        st.rerun()
