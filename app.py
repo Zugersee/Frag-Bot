@@ -1,1 +1,7 @@
-import streamlit as st import google.generativeai as genai st.title("Reparatur") genai.configure(api_key=st.secrets["GOOGLE_API_KEY"]) for m in genai.list_models(): if 'generateContent' in m.supported_generation_methods: st.write(m.name)
+import streamlit as st 
+import google.generativeai as genai 
+st.title("Reparatur") (Drück Enter)
+enai.configure(api_key=st.secrets["GOOGLE_API_KEY"]) 
+t.write("Ich suche Modelle...") 
+for m in genai.list_models():    
+    st.write(m.name)
