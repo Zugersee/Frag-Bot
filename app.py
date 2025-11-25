@@ -20,8 +20,7 @@ if "GOOGLE_API_KEY" not in st.secrets:
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # --- 3. DAS GEHIRN (VERSIONS-FIX) ---
-# WICHTIG: Hier wurde der Name geändert auf 'gemini-1.5-flash-001'
-# Das behebt den Fehler, den du hattest.
+# WICHTIG: Hier nutzen wir 'gemini-2.0-flash' da dieser auf deiner Liste verfügbar war.
 try:
     model = genai.GenerativeModel('gemini-2.0-flash')
 except Exception as e:
