@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 from gtts import gTTS
 import io
-import time # Beibehalten für mögliche zukünftige Verzögerungen
+import time
 
 # --- 1. KONFIGURATION ---
 st.set_page_config(page_title="Berti", page_icon="🎓", layout="centered")
@@ -15,33 +15,8 @@ if "GOOGLE_API_KEY" not in st.secrets:
     st.stop()
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# --- 3. SESSION STATE ---
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "model", "parts": "Hallo! Ich bin Berti. Welches Thema interessiert dich? Tiere, Ritter oder Weltraum?"}
-    ]
-if "audio_key" not in st.session_state:
-    st.session_state.audio_key = 0
-if "autoplay_audio" not in st.session_state:
-    st.session_state.autoplay_audio = None
-if "chat" not in st.session_state:
-    # Initialisiere den Chat-Client mit dem System-Prompt
-    try:
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        # Erstelle ein neues Chat-Objekt
-        st.session_state.chat = model.start_chat()
-        
-        # Füge den System-Prompt als erste unsichtbare Nachricht hinzu
-        st.session_state.chat.history.append({"role": "system", "parts": system_prompt})
-        
-        # Füge die Begrüßung des Modells in die Historie (für das UI) ein
-        st.session_state.chat.history.append(st.session_state.messages[0])
-        
-    except Exception as e:
-        st.error(f"Fehler beim Initialisieren des Modells/Chats: {e}")
-
-# --- 4. PERSÖNLICHKEIT (DER MITTELWEG) ---
-# System-Prompt wurde hier nach oben verschoben, um ihn einfacher für den Chat-Initialisierung zu nutzen
+# --- 3. PERSÖNLICHKEIT (SYSTEM PROMPT) ---
+# **WICHTIG:** Die Definition muss VOR dem Session State Block stehen, der sie verwendet!
 system_prompt = """
 Du bist "Berti", ein Mentor für ein 6-jähriges Kind.
 DEINE MISSION: Ein lebendiger Dialog. Wissen soll "häppchenweise" kommen, nicht als Vortrag.
@@ -62,22 +37,35 @@ REGELN:
 5. TONALITÄT: Freundlich, schlau, zügig.
 """
 
-# --- 5. CHAT ANZEIGEN ---
-# Zeige nur die sichtbaren Nachrichten (ohne den System-Prompt)
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["parts"])
-
-# AUDIO PLAYER (AUTOPLAY)
-if st.session_state.autoplay_audio:
-    st.audio(st.session_state.autoplay_audio, format='audio/mpeg', autoplay=True, key=f"audio_{st.session_state.audio_key}")
-    st.caption("🔊 Falls du nichts hörst, tippe oben auf Play ▶️")
+# --- 4. SESSION STATE ---
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "model", "parts": "Hallo! Ich bin Berti. Welches Thema interessiert dich? Tiere, Ritter oder Weltraum?"}
+    ]
+if "audio_key" not in st.session_state:
+    st.session_state.audio_key = 0
+if "autoplay_audio" not in st.session_state:
     st.session_state.autoplay_audio = None
 
-st.markdown("---")
+if "chat" not in st.session_state:
+    # Initialisiere den Chat-Client mit dem System-Prompt
+    try:
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        # Erstelle ein neues Chat-Objekt
+        st.session_state.chat = model.start_chat()
+        
+        # Füge den System-Prompt als erste unsichtbare Nachricht hinzu
+        st.session_state.chat.history.append({"role": "system", "parts": system_prompt})
+        
+        # Füge die Begrüßung des Modells in die Historie (für das UI) ein
+        st.session_state.chat.history.append(st.session_state.messages[0])
+        
+    except Exception as e:
+        st.error(f"Fehler beim Initialisieren des Modells/Chats: {e}")
+        st.stop()
 
 
-# --- 6. HILFSFUNKTIONEN ---
+# --- 5. HILFSFUNKTIONEN ---
 
 def text_to_audio(text):
     """Konvertiert Text in eine abspielbare MP3-Datei (Bytes)."""
@@ -99,7 +87,25 @@ def reset_audio():
     st.session_state.audio_key += 1
     st.success("Audio-Player wurde zurückgesetzt.")
 
-# --- 7. EINGABE BEREICH (HIER WAR DEIN CODE UNVOLLSTÄNDIG) ---
+
+# --- 6. CHAT ANZEIGEN ---
+# Zeige nur die sichtbaren Nachrichten (ab Index 1, da Index 0 die Begrüßung ist)
+for msg in st.session_state.messages:
+    # Der System-Prompt wird nicht im UI angezeigt, da er nur für das Modell ist.
+    if msg["role"] != "system":
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["parts"])
+
+# AUDIO PLAYER (AUTOPLAY)
+if st.session_state.autoplay_audio:
+    st.audio(st.session_state.autoplay_audio, format='audio/mpeg', autoplay=True, key=f"audio_{st.session_state.audio_key}")
+    st.caption("🔊 Falls du nichts hörst, tippe oben auf Play ▶️")
+    st.session_state.autoplay_audio = None
+
+st.markdown("---")
+
+
+# --- 7. EINGABE BEREICH ---
 
 # A) RESET BUTTON
 col1, col2 = st.columns([3, 1])
@@ -120,7 +126,6 @@ if prompt:
         with st.spinner("Berti denkt nach..."):
             try:
                 # 3. Gemini aufrufen
-                # Die History und der System-Prompt sind bereits im Chat-Objekt gespeichert
                 response = st.session_state.chat.send_message(prompt)
                 
                 model_response_text = response.text
