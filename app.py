@@ -30,23 +30,22 @@ try:
 except Exception as e:
     st.error(f"Fehler: {e}")
 
-# --- 5. PERSÖNLICHKEIT ---
+# --- 5. PERSÖNLICHKEIT (DER MITTELWEG) ---
 system_prompt = """
 Du bist "Berti", ein Mentor für ein 6-jähriges Kind.
-DEINE OBERSTE REGEL: Jede deiner Antworten muss neues WISSEN enthalten.
+DEINE MISSION: Ein lebendiger Dialog. Wissen soll "häppchenweise" kommen, nicht als Vortrag.
 
 REGELN:
 1. KEINE BEGRÜSSUNG: Sag NIEMALS "Hallo" (außer ganz am Anfang).
-2. KEINE FLOSKELN: Spar dir "Das ist eine tolle Frage" oder "Gut beobachtet".
-3. UNTERSCHEIDE ZWEI FÄLLE:
-   Fall A: Das Kind fragt explizit nach einer Erklärung ("Erzähl mir was über...", "Wie geht das?").
-      -> ANTWORTE: Erkläre es direkt, anschaulich und ausführlich. Verzichte hier auf Gegenfragen, bis das Wissen vermittelt ist.
+2. KEINE FLOSKELN: Keine Füllsätze wie "Das hast du toll gesagt".
+3. STRUKTUR & PÄDAGOGIK (BALANCE):
+   - WISSEN DOSIEREN: Liefere pro Antwort genau EINEN spannenden Fakt oder Fachbegriff (z.B. **Schwerkraft**). Erkläre diesen kurz und bildhaft (max. 2 Sätze). Erschlage das Kind nicht mit Text.
    
-   Fall B: Ihr seid im Dialog.
-      -> STRUKTUR:
-         1. Bestätigung: Greif kurz auf, was das Kind gesagt hat.
-         2. WISSEN (Das Wichtigste!): Erkläre den Sachverhalt sofort. Nenne Fachbegriffe (z.B. **Schwerkraft**) und erkläre sie einfach. Warte damit nicht bis zur nächsten Runde.
-         3. Weiterführung: Erst NACH dem Wissen stelle eine neue Frage zum Weiterdenken.
+   - DER ABLAUF:
+     a) Wenn das Kind ein neues Thema startet: Stelle erst eine **Impulsfrage** ("Was glaubst du, warum...?"), um die Neugier zu wecken. Gib noch keine Definitionen.
+     b) Wenn das Kind geantwortet hat: Bestätige die Idee kurz ("Fast richtig!" oder "Genau!"). Dann gib das **Wissens-Häppchen** dazu. Danach stelle eine neue Frage, die darauf aufbaut.
+   
+   - AUSNAHME: Wenn das Kind explizit fragt ("Wie geht das?"): Erkläre es direkt, aber bleibe kurz und knackig.
 
 4. FORMATIERUNG: Nutze **fette Schrift** für Fachbegriffe.
 5. TONALITÄT: Freundlich, schlau, zügig.
@@ -71,93 +70,3 @@ st.write("Antworte per Sprache oder Text:")
 # A) RESET BUTTON (Falls Audio klemmt)
 col1, col2 = st.columns([3, 1])
 with col1:
-    st.caption("Mikrofon klemmt? Klicke hier:")
-with col2:
-    if st.button("Neu 🔄"):
-        st.session_state.audio_key += 1
-        st.rerun()
-
-# B) AUDIO EINGABE
-audio_value = st.audio_input("Aufnahme:", key=f"rec_{st.session_state.audio_key}")
-
-# C) TEXT EINGABE (Fallback)
-text_input = st.chat_input("Oder schreibe deine Antwort hier...")
-
-# --- 8. VERARBEITUNG ---
-user_content = None
-content_type = None # "audio" oder "text"
-
-# Prüfen was reinkam
-if audio_value:
-    user_content = audio_value
-    content_type = "audio"
-elif text_input:
-    user_content = text_input
-    content_type = "text"
-
-if user_content:
-    # 1. Nutzer-Nachricht anzeigen
-    with st.chat_message("user"):
-        if content_type == "audio":
-            st.write("🎤 *(Audio gesendet)*")
-            user_msg_log = "🎤 *(Audio)*"
-            # Daten für Prompt vorbereiten
-            user_data_part = {"mime_type": "audio/mp3", "data": user_content.getvalue()}
-            prompt_instruction = "Antworte auf dieses Audio:"
-        else:
-            st.write(user_content)
-            user_msg_log = user_content
-            # Daten für Prompt vorbereiten
-            user_data_part = f"Der Nutzer schreibt: {user_content}"
-            prompt_instruction = "Antworte auf diesen Text:"
-
-    st.session_state.messages.append({"role": "user", "parts": user_msg_log})
-
-    # 2. Kontext holen
-    last_bot_response = ""
-    if len(st.session_state.messages) > 1:
-        for msg in reversed(st.session_state.messages[:-1]):
-            if msg["role"] == "model":
-                last_bot_response = msg["parts"]
-                break
-
-    # 3. KI Denken lassen
-    with st.spinner('Berti denkt nach...'):
-        try:
-            prompt_content = [
-                system_prompt,
-                f"Kontext (Deine letzte Aussage war): {last_bot_response}",
-                prompt_instruction,
-                user_data_part
-            ]
-
-            response = None
-            for attempt in range(3):
-                try:
-                    response = model.generate_content(prompt_content)
-                    break
-                except Exception as e:
-                    if "429" in str(e):
-                        time.sleep(2)
-                        continue
-                    else:
-                        raise e
-
-            if response:
-                bot_text = response.text
-                st.session_state.messages.append({"role": "model", "parts": bot_text})
-                
-                # Sternchen entfernen für Audio
-                text_for_audio = bot_text.replace("*", "").replace("_", "")
-                
-                tts = gTTS(text=text_for_audio, lang='de')
-                audio_fp = io.BytesIO()
-                tts.write_to_fp(audio_fp)
-                st.session_state.autoplay_audio = audio_fp.getvalue()
-                
-                # WICHTIG: Audio-Widget resetten für nächste Runde
-                st.session_state.audio_key += 1
-                st.rerun()
-
-        except Exception as e:
-            st.error(f"Fehler: {e}")
