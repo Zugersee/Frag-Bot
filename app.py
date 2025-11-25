@@ -49,62 +49,92 @@ if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "model", "parts": "Hallo! Ich bin bereit. Welches Thema interessiert dich heute? Tiere, Sterne oder vielleicht Ritter?"}
     ]
+if "last_audio_id" not in st.session_state:
+    st.session_state.last_audio_id = None
 
 # Verlauf anzeigen
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["parts"])
 
-# --- 6. AUDIO LOGIK MIT GEDÄCHTNIS ---
-audio_value = st.audio_input("Deine Antwort / Deine Frage:")
+# --- 6. EINGABE LOGIK (TEXT ODER AUDIO) ---
+# Wir bieten beides an: Mikrofon oben, Textfeld unten (Streamlit Standard)
+audio_value = st.audio_input("Sprich mit Berti:")
+text_input = st.chat_input("Oder schreibe deine Antwort hier...")
 
-if audio_value:
-    # A) Audio anzeigen
+user_input_content = None
+is_audio_message = False
+
+# Prüfen: Was hat der Nutzer getan?
+if text_input:
+    # Nutzer hat getippt
+    user_input_content = text_input
+    is_audio_message = False
+
+elif audio_value:
+    # Nutzer hat gesprochen - wir prüfen, ob das eine NEUE Aufnahme ist
+    # (Damit Berti nicht bei jedem Klick auf die alte Aufnahme antwortet)
+    if audio_value != st.session_state.last_audio_id:
+        st.session_state.last_audio_id = audio_value
+        user_input_content = audio_value
+        is_audio_message = True
+
+# --- 7. VERARBEITUNG ---
+if user_input_content:
+    # A) Nutzer-Nachricht anzeigen
     with st.chat_message("user"):
-        st.write("🎤 *(Audio Nachricht gesendet)*")
-    st.session_state.messages.append({"role": "user", "parts": "🎤 *(Audio Nachricht)*"})
+        if is_audio_message:
+            st.write("🎤 *(Audio Nachricht)*")
+        else:
+            st.write(user_input_content) # Zeige den Text an
+            
+    # Speichern im Verlauf
+    user_msg_part = "🎤 *(Audio)*" if is_audio_message else user_input_content
+    st.session_state.messages.append({"role": "user", "parts": user_msg_part})
 
-    # B) Kontext bauen (Was hat Berti zuletzt gesagt?)
-    # Wir holen die letzte Antwort des Bots, damit er weiß, worum es geht
+    # B) Kontext holen (Was hat Berti zuletzt gesagt?)
     last_bot_response = ""
     if len(st.session_state.messages) > 1:
-        # Suche rückwärts nach der letzten Model-Nachricht
         for msg in reversed(st.session_state.messages[:-1]):
             if msg["role"] == "model":
                 last_bot_response = msg["parts"]
                 break
     
-    # C) Nachdenken
-    with st.spinner('Berti hört zu und denkt nach...'):
+    # C) Nachdenken & Antworten
+    with st.spinner('Berti denkt nach...'):
         try:
-            # Wir bauen einen Prompt, der den Kontext enthält
-            full_prompt_parts = [
-                system_prompt,
-                f"Kontext (Das hast du das Kind gerade gefragt): {last_bot_response}",
-                "Antworte dem Kind jetzt auf seine Audio-Eingabe. Führe den Dialog weiter:",
-                {"mime_type": "audio/mp3", "data": audio_value.getvalue()}
-            ]
+            # Prompt bauen
+            if is_audio_message:
+                # Audio an Gemini senden
+                prompt_content = [
+                    system_prompt,
+                    f"Kontext (Deine letzte Frage war): {last_bot_response}",
+                    "Führe den Dialog weiter. Antworte auf dieses Audio:",
+                    {"mime_type": "audio/mp3", "data": user_input_content.getvalue()}
+                ]
+            else:
+                # Text an Gemini senden
+                prompt_content = [
+                    system_prompt,
+                    f"Kontext (Deine letzte Frage war): {last_bot_response}",
+                    f"Der Nutzer antwortet: {user_input_content}",
+                    "Führe den Dialog weiter."
+                ]
 
-            response = model.generate_content(full_prompt_parts)
+            response = model.generate_content(prompt_content)
             bot_text = response.text
 
-            # D) Text Antwort anzeigen
+            # D) Antwort anzeigen
             with st.chat_message("model"):
                 st.markdown(bot_text)
+            st.session_state.messages.append({"role": "model", "parts": bot_text})
             
-            # E) Audio generieren
+            # E) Sprechen (TTS)
             tts = gTTS(text=bot_text, lang='de')
             audio_fp = io.BytesIO()
             tts.write_to_fp(audio_fp)
-            
-            # WICHTIG: Bytes für den Browser vorbereiten
             audio_bytes = audio_fp.getvalue()
-            
-            # F) Abspielen
             st.audio(audio_bytes, format='audio/mp3', autoplay=True)
-
-            # G) Speichern
-            st.session_state.messages.append({"role": "model", "parts": bot_text})
 
         except Exception as e:
             st.error(f"Ein kleiner Fehler ist aufgetreten: {str(e)}")
@@ -113,4 +143,5 @@ if audio_value:
 with st.sidebar:
     if st.button("Neues Thema starten 🔄"):
         st.session_state.messages = []
+        st.session_state.last_audio_id = None
         st.rerun()
