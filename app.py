@@ -3,6 +3,7 @@ import google.generativeai as genai
 from gtts import gTTS
 import io
 import re
+import time  # Wichtig für die Wartezeit bei Fehlern
 
 # --- 1. KONFIGURATION ---
 st.set_page_config(page_title="Berti", page_icon="🎓", layout="centered")
@@ -21,7 +22,6 @@ if "messages" not in st.session_state:
 if "audio_key" not in st.session_state:
     st.session_state.audio_key = 0
 
-# Audio-Daten und Autoplay-Trigger
 if "last_audio_data" not in st.session_state:
     st.session_state.last_audio_data = None
 if "trigger_autoplay" not in st.session_state:
@@ -33,7 +33,7 @@ try:
 except Exception as e:
     st.error(f"Fehler: {e}")
 
-# --- 5. PÄDAGOGISCHES PROFIL (Mit Spiegelung für Transkript) ---
+# --- 5. PÄDAGOGISCHES PROFIL ---
 system_prompt = """
 Du bist "Berti", ein Forschungs-Begleiter für ein 6-jähriges Kind.
 DEIN ZIEL: Wissen vermitteln + Mitdenken anregen (80/20 Regel).
@@ -48,7 +48,7 @@ REGELN:
 
 ABLAUF (80/20 Regel):
 SZENARIO A (Neue Frage):
-- Beginne mit: "Du möchtest wissen, [Thema]..." oder "Ah, du fragst..."
+- Beginne mit: "Du möchtest wissen, [Thema]..."
 - Erkläre 80% (Was/Wie).
 - Stelle eine Forscherfrage zum "Warum" oder einem Detail.
 
@@ -76,7 +76,7 @@ trigger_geschichte = col3.button("🦸 Geschichte", use_container_width=True)
 
 st.markdown("---")
 
-# --- 8. CHAT VERLAUF (VISUELL) ---
+# --- 8. CHAT VERLAUF ---
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["parts"])
@@ -94,7 +94,7 @@ st.write("### 🎙️ Deine Forschungs-Frage:")
 audio_value = st.audio_input("Aufnahme starten:", key=f"rec_{st.session_state.audio_key}")
 text_input = st.chat_input("Oder schreibe hier...")
 
-# --- 11. VERARBEITUNG ---
+# --- 11. VERARBEITUNG MIT RETRY-LOGIK ---
 user_content = None
 content_type = None 
 prompt_instruction = ""
@@ -122,8 +122,7 @@ if user_content:
             st.write("🎤 *(Sprachnachricht)*")
             user_msg_log = "🎤 *(Sprachnachricht)*"
             user_data_part = {"mime_type": "audio/wav", "data": user_content.getvalue()}
-            # WICHTIG: Instruktion für Berti, die Frage zu wiederholen
-            prompt_instruction = "Höre dir das Kind an. WICHTIG: Beginne deine Antwort damit, zu sagen, was du verstanden hast (z.B. 'Du fragst, ...'). Dann antworte nach Szenario A oder B."
+            prompt_instruction = "Höre dir das Kind an. Wiederhole kurz was es gefragt hat, dann antworte nach Szenario A oder B."
         else:
             st.markdown(user_content)
             user_msg_log = user_content
@@ -139,19 +138,38 @@ if user_content:
             last_bot_response = msg["parts"]
             break
 
-    # 3. KI Generierung
+    # 3. KI Generierung (MIT RETRY SCHLEIFE)
     with st.spinner('Berti überlegt...'):
-        try:
-            prompt_content = [
-                system_prompt,
-                f"KONTEXT: {last_bot_response}.",
-                prompt_instruction,
-                user_data_part
-            ]
-
-            response = model.generate_content(prompt_content)
+        response = None
+        # Wir versuchen es maximal 3 Mal
+        for attempt in range(3):
+            try:
+                prompt_content = [
+                    system_prompt,
+                    f"KONTEXT: {last_bot_response}.",
+                    prompt_instruction,
+                    user_data_part
+                ]
+                
+                response = model.generate_content(prompt_content)
+                break # Wenn es klappt, brechen wir die Schleife ab (Erfolg!)
             
-            if response:
+            except Exception as e:
+                # Prüfen auf Fehler 429 (Quota Exceeded / Resource Exhausted)
+                error_msg = str(e)
+                if "429" in error_msg or "Resource exhausted" in error_msg:
+                    # Wir warten kurz (2 Sekunden, dann 4 Sekunden...)
+                    time.sleep(2 + attempt) 
+                    continue # Nächster Versuch in der Schleife
+                else:
+                    # Bei anderen Fehlern (echte Fehler) brechen wir ab
+                    st.error(f"Ein technischer Fehler ist aufgetreten: {e}")
+                    response = None
+                    break
+
+        # Wenn wir nach 3 Versuchen eine Antwort haben:
+        if response:
+            try:
                 bot_text = response.text
                 st.session_state.messages.append({"role": "model", "parts": bot_text})
                 
@@ -161,25 +179,23 @@ if user_content:
                 audio_fp = io.BytesIO()
                 tts.write_to_fp(audio_fp)
                 
-                # Speichern & Trigger
                 st.session_state.last_audio_data = audio_fp.getvalue()
                 st.session_state.trigger_autoplay = True
                 st.session_state.audio_key += 1
                 st.rerun()
+            except Exception as e:
+                st.error("Berti konnte die Antwort nicht lesen (Sicherheitsfilter). Versuch es nochmal.")
+        
+        # Wenn response immer noch None ist (nach 3 Versuchen gescheitert):
+        elif response is None:
+            st.warning("⚠️ Berti muss kurz Pause machen (zu viele Anfragen). Warte 30 Sekunden und probiere es dann nochmal!")
 
-        except Exception as e:
-            st.error(f"Fehler: {e}")
-
-# --- 12. TRANSKRIPT FÜR ELTERN (NEU!) ---
+# --- 12. TRANSKRIPT ---
 st.markdown("---")
 with st.expander("📝 Transkript & Verlauf (für Eltern)"):
-    st.info("Hier kannst du nachlesen, was besprochen wurde. Bei Audio-Aufnahmen wiederholt Berti meist die Frage im ersten Satz.")
-    
-    for i, msg in enumerate(st.session_state.messages):
+    for msg in st.session_state.messages:
         role = "🤖 Berti" if msg["role"] == "model" else "👤 Kind"
-        content = msg["parts"]
-        
-        # Leichte Formatierung für bessere Lesbarkeit
         st.markdown(f"**{role}:**")
-        st.text(content) # Nutzung von st.text verhindert Markdown-Interpretation (cleaner look)
+        st.text(msg["parts"])
         st.markdown("---")
+        
