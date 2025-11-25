@@ -89,11 +89,11 @@ if audio_value:
             audio_fp = io.BytesIO()
             tts.write_to_fp(audio_fp)
             
-            # WICHTIG: Datei-Zeiger zurücksetzen!
-            audio_fp.seek(0)
+            # WICHTIG: Wir holen uns jetzt die rohen Bytes, das ist stabiler für den Browser
+            audio_bytes = audio_fp.getvalue()
             
             # F) Audio automatisch abspielen
-            st.audio(audio_fp, format='audio/mp3', autoplay=True)
+            st.audio(audio_bytes, format='audio/mp3', autoplay=True)
 
             # G) Antwort im Verlauf speichern
             st.session_state.messages.append({"role": "model", "parts": bot_text})
