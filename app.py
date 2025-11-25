@@ -30,7 +30,7 @@ try:
 except Exception as e:
     st.error(f"Fehler: {e}")
 
-# --- 5. PERSÖNLICHKEIT (NEU: ERST DENKEN, DANN WISSEN) ---
+# --- 5. PERSÖNLICHKEIT ---
 system_prompt = """
 Du bist "Berti", ein Mentor für ein 6-jähriges Kind.
 DEINE REGELN:
@@ -49,23 +49,63 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["parts"])
 
-# AUDIO PLAYER
+# AUDIO PLAYER (AUTOPLAY)
 if st.session_state.autoplay_audio:
     st.audio(st.session_state.autoplay_audio, format='audio/mpeg', autoplay=True)
     st.caption("🔊 Falls du nichts hörst, tippe oben auf Play ▶️")
     st.session_state.autoplay_audio = None
 
 st.markdown("---")
-st.write("Sprich jetzt deine Antwort ein:")
+st.write("Antworte per Sprache oder Text:")
 
-# --- 7. AUDIO EINGABE ---
+# --- 7. EINGABE BEREICH ---
+
+# A) RESET BUTTON (Falls Audio klemmt)
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.caption("Mikrofon klemmt? Klicke hier:")
+with col2:
+    if st.button("Neu 🔄"):
+        st.session_state.audio_key += 1
+        st.rerun()
+
+# B) AUDIO EINGABE
 audio_value = st.audio_input("Aufnahme:", key=f"rec_{st.session_state.audio_key}")
 
-if audio_value:
-    with st.chat_message("user"):
-        st.write("🎤 *(Audio gesendet)*")
-    st.session_state.messages.append({"role": "user", "parts": "🎤 *(Audio)*"})
+# C) TEXT EINGABE (Fallback)
+text_input = st.chat_input("Oder schreibe deine Antwort hier...")
 
+# --- 8. VERARBEITUNG ---
+user_content = None
+content_type = None # "audio" oder "text"
+
+# Prüfen was reinkam
+if audio_value:
+    user_content = audio_value
+    content_type = "audio"
+elif text_input:
+    user_content = text_input
+    content_type = "text"
+
+if user_content:
+    # 1. Nutzer-Nachricht anzeigen
+    with st.chat_message("user"):
+        if content_type == "audio":
+            st.write("🎤 *(Audio gesendet)*")
+            user_msg_log = "🎤 *(Audio)*"
+            # Daten für Prompt vorbereiten
+            user_data_part = {"mime_type": "audio/mp3", "data": user_content.getvalue()}
+            prompt_instruction = "Antworte auf dieses Audio:"
+        else:
+            st.write(user_content)
+            user_msg_log = user_content
+            # Daten für Prompt vorbereiten
+            user_data_part = f"Der Nutzer schreibt: {user_content}"
+            prompt_instruction = "Antworte auf diesen Text:"
+
+    st.session_state.messages.append({"role": "user", "parts": user_msg_log})
+
+    # 2. Kontext holen
     last_bot_response = ""
     if len(st.session_state.messages) > 1:
         for msg in reversed(st.session_state.messages[:-1]):
@@ -73,13 +113,14 @@ if audio_value:
                 last_bot_response = msg["parts"]
                 break
 
-    with st.spinner('Berti hört zu...'):
+    # 3. KI Denken lassen
+    with st.spinner('Berti denkt nach...'):
         try:
             prompt_content = [
                 system_prompt,
                 f"Kontext (Deine letzte Aussage war): {last_bot_response}",
-                "Führe den Dialog weiter. Antworte auf dieses Audio:",
-                {"mime_type": "audio/mp3", "data": audio_value.getvalue()}
+                prompt_instruction,
+                user_data_part
             ]
 
             response = None
@@ -98,8 +139,7 @@ if audio_value:
                 bot_text = response.text
                 st.session_state.messages.append({"role": "model", "parts": bot_text})
                 
-                # --- HIER IST DER FIX FÜR DIE STERNCHEN ---
-                # Wir entfernen Markdown-Zeichen (* und _) nur für die Audio-Ausgabe
+                # Sternchen entfernen für Audio
                 text_for_audio = bot_text.replace("*", "").replace("_", "")
                 
                 tts = gTTS(text=text_for_audio, lang='de')
@@ -107,6 +147,7 @@ if audio_value:
                 tts.write_to_fp(audio_fp)
                 st.session_state.autoplay_audio = audio_fp.getvalue()
                 
+                # WICHTIG: Audio-Widget resetten für nächste Runde
                 st.session_state.audio_key += 1
                 st.rerun()
 
