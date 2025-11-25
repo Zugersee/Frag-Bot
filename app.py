@@ -20,8 +20,12 @@ if "messages" not in st.session_state:
     ]
 if "audio_key" not in st.session_state:
     st.session_state.audio_key = 0
-if "autoplay_audio" not in st.session_state:
-    st.session_state.autoplay_audio = None
+
+# WICHTIG: Wir trennen jetzt Daten und Autoplay-Status
+if "last_audio_data" not in st.session_state:
+    st.session_state.last_audio_data = None
+if "trigger_autoplay" not in st.session_state:
+    st.session_state.trigger_autoplay = False
 
 # --- 4. MODELL ---
 try:
@@ -29,52 +33,31 @@ try:
 except Exception as e:
     st.error(f"Fehler: {e}")
 
-# --- 5. PÄDAGOGISCHES PROFIL (FORSCHER-MODUS) ---
+# --- 5. PÄDAGOGISCHES PROFIL ---
 system_prompt = """
 Du bist "Berti", ein Forschungs-Begleiter für ein 6-jähriges Kind.
-DEIN ZIEL: Ermöglichungsdidaktik & Konstruktivismus. Du lieferst keine fertigen Antworten, sondern regst das eigene Denken an.
+DEIN ZIEL: Ermöglichungsdidaktik & Konstruktivismus.
 
 REGELN:
-1. **EMOJIS:** Im Text darfst du sparsam Emojis nutzen (zur Auflockerung).
-2. **KEINE BEGRÜSSUNG:** Steige direkt in das Thema ein.
+1. **EMOJIS:** Im Text erlaubt.
+2. **KEINE BEGRÜSSUNG:** Direkt zum Thema.
 3. **SPRACHE:** Einfach, klar, duzt das Kind.
 
-DER PÄDAGOGISCHE ABLAUF:
-
-SZENARIO A: Das Kind stellt eine NEUE FRAGE oder eine HYPOTHESE.
--> **AKTION:** Gib KEINE Erklärung. Validiere die Frage ("Spannende Idee!").
--> **FORSCHERFRAGE:** Stelle eine Frage zurück, die das Kind auf die Lösung bringt. Nutze Analogien aus dem Kinderalltag.
-   *Beispiel:* Kind: "Warum schwimmt das Schiff?" -> Berti: "Gute Frage! Hast du mal versucht, einen schweren Stein und einen großen Ball ins Wasser zu legen? Was passiert da?"
-
-SZENARIO B: Das Kind antwortet/rät oder löst das Rätsel.
--> **AKTION:** Lob den Denkprozess!
--> **WISSEN:** Jetzt darfst du das Fachwissen kurz auflösen (max. 3 Sätze). Fachbegriffe **fett**.
--> **TRANSFER:** Stelle eine neue Frage, die das Wissen erweitert.
-
-SZENARIO C: Geschichten & Witze
--> Geschichten: Der Held (Kind) löst Probleme durch Nachdenken & Empathie. Ende mit Reflexionsfrage: "Was hättest du getan?"
+ABLAUF:
+SZENARIO A (Neue Frage): Keine Erklärung! Gib einen Hinweis + Forscherfrage.
+SZENARIO B (Antwort Kind): Loben + kurzes Wissen + Transferfrage.
+SZENARIO C (Geschichten): Held löst Problem durch Empathie.
 """
 
 # --- 6. HILFSFUNKTIONEN ---
-
 def clean_text_for_audio(text):
-    """
-    Entfernt Emojis und Markdown für eine saubere Sprachausgabe.
-    """
-    # 1. Entferne Markdown (*, #, _)
     text = text.replace("*", "").replace("#", "").replace("_", "")
-    
-    # 2. Entferne Emojis (Regex behält nur Buchstaben, Zahlen & Satzzeichen)
-    # Erlaubt: Wortzeichen, Leerzeichen, Satzzeichen (. , ? ! : ; -) und deutsche Umlaute
     text = re.sub(r'[^\w\s,?.!äöüÄÖÜß:;–-]', '', text)
-    
     return text.strip()
 
 # --- 7. UI-LAYOUT (BUTTONS OBEN) ---
-
 st.title("🎓 Frag Berti")
 
-# Die Buttons ganz oben, damit sie immer sichtbar sind
 col1, col2, col3 = st.columns(3)
 trigger_witz = col1.button("🤣 Witz", use_container_width=True)
 trigger_fakt = col2.button("🦁 Forschertipp", use_container_width=True)
@@ -82,47 +65,52 @@ trigger_geschichte = col3.button("🦸 Geschichte", use_container_width=True)
 
 st.markdown("---")
 
-# --- 8. CHAT VERLAUF ANZEIGEN ---
+# --- 8. CHAT VERLAUF ---
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["parts"])
 
-# --- 9. AUDIO PLAYER (BUG FIX) ---
-# Wir spielen Audio NUR ab, wenn es Daten gibt UND wir gerade NICHT aufnehmen.
-# Das 'autoplay=True' sorgt für sofortiges Abspielen.
-if st.session_state.autoplay_audio:
-    st.audio(st.session_state.autoplay_audio, format='audio/mpeg', autoplay=True)
-    # WICHTIG: Sofort leeren, damit es beim nächsten Klick (z.B. auf Mikrofon) nicht nochmal spielt
-    st.session_state.autoplay_audio = None 
+# --- 9. AUDIO PLAYER (BUG FIXED) ---
+# Hier ist der Trick: Wir schauen auf die Flagge 'trigger_autoplay'.
+# Nur wenn die wahr ist, starten wir automatisch. Sonst zeigen wir den Player nur an (stumm).
+
+if st.session_state.last_audio_data:
+    should_play = st.session_state.trigger_autoplay
+    
+    st.audio(
+        st.session_state.last_audio_data, 
+        format='audio/mpeg', 
+        autoplay=should_play
+    )
+    
+    # WICHTIG: Sofort den Autoplay-Schalter für die Zukunft ausschalten!
+    # Das Audio bleibt da (Daten), aber beim nächsten Klick (Record) bleibt es stumm.
+    st.session_state.trigger_autoplay = False
+
 
 # --- 10. EINGABE BEREICH ---
-
-# Kleiner Abstand
 st.write("") 
 st.write("### 🎙️ Deine Forschungs-Frage:")
 
 # A) AUDIO EINGABE
-# Der Key sorgt dafür, dass das Widget resettet wird nach der Verarbeitung
 audio_value = st.audio_input("Aufnahme starten:", key=f"rec_{st.session_state.audio_key}")
 
-# B) TEXT EINGABE (Fallback)
+# B) TEXT EINGABE
 text_input = st.chat_input("Oder schreibe hier...")
 
-# --- 11. VERARBEITUNGSLOGIK ---
-
+# --- 11. VERARBEITUNG ---
 user_content = None
 content_type = None 
 prompt_instruction = ""
 
-# Prioritäten prüfen
 if trigger_witz:
-    user_content = "Erzähle mir einen Witz, aber lass mich erst raten wie er ausgeht."
+    user_content = "Erzähle mir einen Witz, lass mich raten."
     content_type = "text"
 elif trigger_fakt:
-    user_content = "Nenne mir ein Natur-Phänomen. Erkläre es NICHT. Frage mich stattdessen, wie das wohl funktioniert."
+    user_content = "Nenne ein Natur-Phänomen. Frage mich, wie es funktioniert."
     content_type = "text"
 elif trigger_geschichte:
-    user_content = "Erzähle eine Geschichte über ein Kind, das ein Problem durch Empathie löst. Frage mich am Ende, was ich getan hätte."
+    user_content = "Geschichte über Empathie. Frage mich am Ende was ich getan hätte."
     content_type = "text"
 elif audio_value:
     user_content = audio_value
@@ -132,18 +120,13 @@ elif text_input:
     content_type = "text"
 
 if user_content:
-    
-    # Bug-Fix Vorsichtsmaßnahme:
-    # Wenn wir neuen Content verarbeiten, sicherstellen, dass altes Audio weg ist.
-    st.session_state.autoplay_audio = None
-
-    # 1. UI Update (User Message anzeigen)
+    # 1. UI Update
     with st.chat_message("user"):
         if content_type == "audio":
             st.write("🎤 *(Sprachnachricht)*")
             user_msg_log = "🎤 *(Sprachnachricht)*"
             user_data_part = {"mime_type": "audio/wav", "data": user_content.getvalue()}
-            prompt_instruction = "Höre dir das Kind genau an. Antworte pädagogisch (Szenario A oder B):"
+            prompt_instruction = "Höre dir das Kind an. Antworte pädagogisch:"
         else:
             st.markdown(user_content)
             user_msg_log = user_content
@@ -152,7 +135,7 @@ if user_content:
 
     st.session_state.messages.append({"role": "user", "parts": user_msg_log})
 
-    # 2. Kontext holen
+    # 2. Kontext
     last_bot_response = ""
     for msg in reversed(st.session_state.messages):
         if msg["role"] == "model":
@@ -164,7 +147,7 @@ if user_content:
         try:
             prompt_content = [
                 system_prompt,
-                f"KONTEXT (Deine letzte Aussage war): {last_bot_response}.",
+                f"KONTEXT: {last_bot_response}.",
                 prompt_instruction,
                 user_data_part
             ]
@@ -173,26 +156,23 @@ if user_content:
             
             if response:
                 bot_text = response.text
-                
-                # Text anzeigen
                 st.session_state.messages.append({"role": "model", "parts": bot_text})
-                # Kein st.markdown() hier nötig, der Rerun macht das gleich
                 
-                # 4. AUDIO BEREINIGEN & GENERIEREN
+                # 4. AUDIO GENERIEREN
                 clean_text = clean_text_for_audio(bot_text)
-                
                 tts = gTTS(text=clean_text, lang='de')
                 audio_fp = io.BytesIO()
                 tts.write_to_fp(audio_fp)
                 
-                # Audio in Session State laden
-                st.session_state.autoplay_audio = audio_fp.getvalue()
+                # Speichern der DATEN
+                st.session_state.last_audio_data = audio_fp.getvalue()
+                # Setzen des SCHALTERS auf AN (nur für jetzt!)
+                st.session_state.trigger_autoplay = True
                 
-                # CRITICAL: Key erhöhen -> Das Audio-Input Widget wird komplett neu geladen
-                # Das verhindert, dass die alte Aufnahme im Widget kleben bleibt.
+                # Reset Input Widget
                 st.session_state.audio_key += 1
                 
                 st.rerun()
 
         except Exception as e:
-            st.error(f"Ein Fehler ist aufgetreten: {e}")
+            st.error(f"Fehler: {e}")
