@@ -2,11 +2,10 @@ import streamlit as st
 import google.generativeai as genai
 from gtts import gTTS
 import io
-import re  # Für die Text-Reinigung (Regex)
+import re
 
 # --- 1. KONFIGURATION ---
 st.set_page_config(page_title="Berti", page_icon="🎓", layout="centered")
-st.title("🎓 Frag Berti")
 
 # --- 2. API KEY ---
 if "GOOGLE_API_KEY" not in st.secrets:
@@ -17,7 +16,7 @@ genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 # --- 3. SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "model", "parts": "Hallo. Ich bin Berti. Ich bin gespannt, was wir heute erforschen. Hast du eine Frage oder eine Idee?"}
+        {"role": "model", "parts": "Hallo! Ich bin Berti. Ich bin gespannt, was wir heute erforschen. Hast du eine Frage oder eine Idee?"}
     ]
 if "audio_key" not in st.session_state:
     st.session_state.audio_key = 0
@@ -30,89 +29,97 @@ try:
 except Exception as e:
     st.error(f"Fehler: {e}")
 
-# --- 5. PÄDAGOGISCHES PROFIL (SOKRATISCH / ERMÖGLICHUNGSDIDAKTIK) ---
+# --- 5. PÄDAGOGISCHES PROFIL (FORSCHER-MODUS) ---
 system_prompt = """
 Du bist "Berti", ein Forschungs-Begleiter für ein 6-jähriges Kind.
-DEIN ZIEL: Ermöglichungsdidaktik. Du lieferst keine fertigen Antworten, sondern regst das eigene Denken an (Hebammenkunst/Mäeutik).
+DEIN ZIEL: Ermöglichungsdidaktik & Konstruktivismus. Du lieferst keine fertigen Antworten, sondern regst das eigene Denken an.
 
-STRIKTE REGELN:
-1. **KEINE EMOJIS:** Nutze reinen Text. Keine Smileys.
-2. **KEINE BEGRÜSSUNG:** Steige direkt in das Thema ein (außer beim allerersten Satz).
-3. **SPRACHE:** Einfach, klar, aber fachlich korrekt. Du duzt das Kind.
+REGELN:
+1. **EMOJIS:** Im Text darfst du sparsam Emojis nutzen (zur Auflockerung).
+2. **KEINE BEGRÜSSUNG:** Steige direkt in das Thema ein.
+3. **SPRACHE:** Einfach, klar, duzt das Kind.
 
-DER PÄDAGOGISCHE ABLAUF (Dialogisches Lernen):
+DER PÄDAGOGISCHE ABLAUF:
 
-SZENARIO A: Das Kind stellt eine NEUE FRAGE (z.B. "Warum ist die Banane krumm?")
--> **ANTWORT:** Gib KEINE Erklärung. Gib nur einen winzigen Hinweis (Scaffolding).
--> **AKTION:** Stelle sofort eine **Forscherfrage**, die das Kind zur Hypothesenbildung anregt.
-   *Beispiel:* "Das hat mit der Sonne zu tun. Was glaubst du, wo die Banane hin will, wenn sie wächst?"
+SZENARIO A: Das Kind stellt eine NEUE FRAGE oder eine HYPOTHESE.
+-> **AKTION:** Gib KEINE Erklärung. Validiere die Frage ("Spannende Idee!").
+-> **FORSCHERFRAGE:** Stelle eine Frage zurück, die das Kind auf die Lösung bringt. Nutze Analogien aus dem Kinderalltag.
+   *Beispiel:* Kind: "Warum schwimmt das Schiff?" -> Berti: "Gute Frage! Hast du mal versucht, einen schweren Stein und einen großen Ball ins Wasser zu legen? Was passiert da?"
 
-SZENARIO B: Das Kind antwortet auf deine Frage oder rät.
--> **ANTWORT:** Würdige den Gedankengang (Validierung).
--> **WISSEN:** Jetzt darfst du das Fachwissen kindgerecht auflösen (max. 3 Sätze). Nutze Fachbegriffe fettgedruckt (z.B. **Licht**, **Schwerkraft**).
--> **TRANSFER:** Stelle eine abschließende Frage, die das Wissen auf etwas anderes überträgt oder zum Weiterdenken anregt (Future Skills / Kritisches Denken).
-   *Beispiel:* "Genau! Sie wächst zum Licht. Wo hast du das schon mal bei Blumen gesehen?"
+SZENARIO B: Das Kind antwortet/rät oder löst das Rätsel.
+-> **AKTION:** Lob den Denkprozess!
+-> **WISSEN:** Jetzt darfst du das Fachwissen kurz auflösen (max. 3 Sätze). Fachbegriffe **fett**.
+-> **TRANSFER:** Stelle eine neue Frage, die das Wissen erweitert.
 
 SZENARIO C: Geschichten & Witze
--> Bei Geschichten: Der Held löst Probleme durch Nachdenken und Empathie. Ende mit einer Reflexionsfrage: "Wie hättest du dich gefühlt?"
+-> Geschichten: Der Held (Kind) löst Probleme durch Nachdenken & Empathie. Ende mit Reflexionsfrage: "Was hättest du getan?"
 """
 
 # --- 6. HILFSFUNKTIONEN ---
 
 def clean_text_for_audio(text):
     """
-    Entfernt Emojis, Markdown (*, #) und ungewollte Zeichen, 
-    damit die Audio-Ausgabe sauber und ruhig ist.
+    Entfernt Emojis und Markdown für eine saubere Sprachausgabe.
     """
-    # 1. Entferne Markdown (Fettgedrucktes etc.)
+    # 1. Entferne Markdown (*, #, _)
     text = text.replace("*", "").replace("#", "").replace("_", "")
     
-    # 2. Entferne Emojis (Alles was nicht Text oder Satzzeichen ist)
-    # Dieser Regex behält Buchstaben (auch Umlaute), Zahlen und Satzzeichen.
+    # 2. Entferne Emojis (Regex behält nur Buchstaben, Zahlen & Satzzeichen)
+    # Erlaubt: Wortzeichen, Leerzeichen, Satzzeichen (. , ? ! : ; -) und deutsche Umlaute
     text = re.sub(r'[^\w\s,?.!äöüÄÖÜß:;–-]', '', text)
     
     return text.strip()
 
-# --- 7. CHAT ANZEIGEN ---
+# --- 7. UI-LAYOUT (BUTTONS OBEN) ---
+
+st.title("🎓 Frag Berti")
+
+# Die Buttons ganz oben, damit sie immer sichtbar sind
+col1, col2, col3 = st.columns(3)
+trigger_witz = col1.button("🤣 Witz", use_container_width=True)
+trigger_fakt = col2.button("🦁 Forschertipp", use_container_width=True)
+trigger_geschichte = col3.button("🦸 Geschichte", use_container_width=True)
+
+st.markdown("---")
+
+# --- 8. CHAT VERLAUF ANZEIGEN ---
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["parts"])
 
-# AUDIO PLAYER (AUTOPLAY)
+# --- 9. AUDIO PLAYER (BUG FIX) ---
+# Wir spielen Audio NUR ab, wenn es Daten gibt UND wir gerade NICHT aufnehmen.
+# Das 'autoplay=True' sorgt für sofortiges Abspielen.
 if st.session_state.autoplay_audio:
     st.audio(st.session_state.autoplay_audio, format='audio/mpeg', autoplay=True)
-    st.caption("🔊 Berti spricht... (Play drücken zum Wiederholen)")
-    st.session_state.autoplay_audio = None
+    # WICHTIG: Sofort leeren, damit es beim nächsten Klick (z.B. auf Mikrofon) nicht nochmal spielt
+    st.session_state.autoplay_audio = None 
 
-st.markdown("---")
+# --- 10. EINGABE BEREICH ---
 
-# --- 8. EINGABE BEREICH ---
-
-# A) BUTTONS (Impulse)
-col1, col2, col3 = st.columns(3)
-trigger_witz = col1.button("Witz erzählen", use_container_width=True)
-trigger_fakt = col2.button("Forschertipp", use_container_width=True) # Umbenannt für Forschermodus
-trigger_geschichte = col3.button("Geschichte", use_container_width=True)
-
-# B) AUDIO EINGABE
+# Kleiner Abstand
+st.write("") 
 st.write("### 🎙️ Deine Forschungs-Frage:")
+
+# A) AUDIO EINGABE
+# Der Key sorgt dafür, dass das Widget resettet wird nach der Verarbeitung
 audio_value = st.audio_input("Aufnahme starten:", key=f"rec_{st.session_state.audio_key}")
 
-# C) TEXT EINGABE
+# B) TEXT EINGABE (Fallback)
 text_input = st.chat_input("Oder schreibe hier...")
 
-# --- 9. LOGIK & VERARBEITUNG ---
+# --- 11. VERARBEITUNGSLOGIK ---
 
 user_content = None
 content_type = None 
 prompt_instruction = ""
 
-# Trigger prüfen
+# Prioritäten prüfen
 if trigger_witz:
     user_content = "Erzähle mir einen Witz, aber lass mich erst raten wie er ausgeht."
     content_type = "text"
 elif trigger_fakt:
-    user_content = "Nenne mir ein Phänomen aus der Natur und frage mich, wie das wohl funktioniert."
+    user_content = "Nenne mir ein Natur-Phänomen. Erkläre es NICHT. Frage mich stattdessen, wie das wohl funktioniert."
     content_type = "text"
 elif trigger_geschichte:
     user_content = "Erzähle eine Geschichte über ein Kind, das ein Problem durch Empathie löst. Frage mich am Ende, was ich getan hätte."
@@ -126,13 +133,17 @@ elif text_input:
 
 if user_content:
     
-    # 1. UI Update
+    # Bug-Fix Vorsichtsmaßnahme:
+    # Wenn wir neuen Content verarbeiten, sicherstellen, dass altes Audio weg ist.
+    st.session_state.autoplay_audio = None
+
+    # 1. UI Update (User Message anzeigen)
     with st.chat_message("user"):
         if content_type == "audio":
             st.write("🎤 *(Sprachnachricht)*")
             user_msg_log = "🎤 *(Sprachnachricht)*"
             user_data_part = {"mime_type": "audio/wav", "data": user_content.getvalue()}
-            prompt_instruction = "Antworte auf dieses Audio (Kind):"
+            prompt_instruction = "Höre dir das Kind genau an. Antworte pädagogisch (Szenario A oder B):"
         else:
             st.markdown(user_content)
             user_msg_log = user_content
@@ -153,7 +164,7 @@ if user_content:
         try:
             prompt_content = [
                 system_prompt,
-                f"KONTEXT (Deine letzte Aussage war): {last_bot_response}. \nANALYSIERE: Ist das eine neue Frage (-> Szenario A) oder eine Antwort des Kindes (-> Szenario B)?",
+                f"KONTEXT (Deine letzte Aussage war): {last_bot_response}.",
                 prompt_instruction,
                 user_data_part
             ]
@@ -165,7 +176,7 @@ if user_content:
                 
                 # Text anzeigen
                 st.session_state.messages.append({"role": "model", "parts": bot_text})
-                # Wir machen hier keinen direkten write, der Rerun erledigt das sauber
+                # Kein st.markdown() hier nötig, der Rerun macht das gleich
                 
                 # 4. AUDIO BEREINIGEN & GENERIEREN
                 clean_text = clean_text_for_audio(bot_text)
@@ -174,9 +185,11 @@ if user_content:
                 audio_fp = io.BytesIO()
                 tts.write_to_fp(audio_fp)
                 
+                # Audio in Session State laden
                 st.session_state.autoplay_audio = audio_fp.getvalue()
                 
-                # Reset Key für Audio Input
+                # CRITICAL: Key erhöhen -> Das Audio-Input Widget wird komplett neu geladen
+                # Das verhindert, dass die alte Aufnahme im Widget kleben bleibt.
                 st.session_state.audio_key += 1
                 
                 st.rerun()
