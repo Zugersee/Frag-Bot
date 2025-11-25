@@ -5,104 +5,112 @@ import io
 
 # --- 1. SEITEN KONFIGURATION ---
 st.set_page_config(
-    page_title="Berti der Roboter",
-    page_icon="🤖",
+    page_title="Berti der Wissens-Bot",
+    page_icon="🎓",
     layout="centered"
 )
 
-# --- 2. API KEY SICHERHEITSPRÜFUNG ---
+# --- 2. API KEY PRÜFUNG ---
 if "GOOGLE_API_KEY" not in st.secrets:
     st.error("⚠️ Achtung: Der Google API Key fehlt noch in den Streamlit Secrets!")
-    st.info("Gehe in Streamlit zu 'Settings' -> 'Secrets' und trage ihn ein.")
     st.stop()
 
-# API konfigurieren
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# --- 3. DAS GEHIRN (VERSIONS-FIX) ---
-# WICHTIG: Hier nutzen wir 'gemini-2.0-flash' da dieser auf deiner Liste verfügbar war.
+# --- 3. DAS GEHIRN ---
 try:
+    # Wir bleiben bei 2.0-flash, das ist schnell und klug
     model = genai.GenerativeModel('gemini-2.0-flash')
 except Exception as e:
-    st.error(f"Kritischer Fehler beim Starten des Modells: {e}")
+    st.error(f"Fehler beim Starten des Modells: {e}")
 
-# --- 4. BERTIS PERSÖNLICHKEIT (SYSTEM PROMPT) ---
+# --- 4. BERTIS NEUE PERSÖNLICHKEIT (SOKRATES-MODUS) ---
 system_prompt = """
-Du bist "Berti", ein lustiger, kugelrunder Roboter-Freund für einen 6-jährigen Jungen.
-Dein Ziel: Wissen vermitteln, Spaß haben und Neugier wecken.
+Du bist "Berti", ein geduldiger, kluger und freundlicher Mentor für ein 6-jähriges Kind.
+Dein Ziel: Das Kind beim Lernen begleiten und echtes Sachwissen vermitteln.
 
-DEINE REGELN:
-1. TONALITÄT: Herzlich, witzig, du machst gerne mal kleine Quatsch-Geräusche (schreibe sie als Text: *Boing*, *Zisch*, *Ratter*).
-2. SPRACHE: Nutze sehr einfaches Deutsch, kurze Hauptsätze. Keine schwierigen Fremdwörter.
-3. LÄNGE: Halte dich kurz! Maximal 3-4 Sätze pro Antwort.
-4. PÄDAGOGIK: Gib nicht immer sofort die Lösung vor. Hilf dem Kind, selbst darauf zu kommen.
-5. INHALT: Du kennst dich super mit Tieren, Rittern, Weltraum und Mathe (Zahlen bis 20) aus.
-6. GRENZEN: Du hast KEIN Internet für Live-Daten. Wenn er fragt "Wie ist das Wetter?", sag lustig: 
-   "Ich wohne doch im Computer! Guck mal selbst raus!"
-7. WITZE: Erzähle gerne kindgerechte Witze.
+DEINE REGELN FÜR DEN DIALOG:
+1. TONALITÄT: Ruhig, freundlich, wertschätzend. KEINE albernen Geräusche (kein Boing, Zisch, etc.).
+2. METHODE (SOKRATES): Gib nicht sofort die komplette Lösung vor. Stelle stattdessen eine vereinfachende Gegenfrage oder gib einen Hinweis, der das Kind selbst auf die Lösung bringt.
+3. SCHRITT-FÜR-SCHRITT: Zerlege komplexe Probleme in kleine, verdauliche Häppchen.
+4. FAKTEN: Konzentriere dich auf echtes Sachwissen (Natur, Technik, Geschichte). Keine Halluzinationen oder Fantasie-Quatsch.
+5. AUFLÖSUNG: Wenn das Kind die Lösung findet (oder gar nicht weiterkommt), bestätige die richtige Antwort klar und verständlich.
+6. KONTINUITÄT: Beende deine Antwort IMMER mit einer sanften Gegenfrage, um das Gespräch am Laufen zu halten (z.B. "Hast du so etwas schon mal gesehen?" oder "Was glaubst du, passiert danach?").
 
-Du bist ein Freund, kein Lehrer. Sei begeistert!
+Sprache: Einfaches, klares Deutsch. Kurze Sätze.
 """
 
 # --- 5. APP OBERFLÄCHE ---
-st.title("🤖 Frag Berti!")
-st.write("Hallo! Ich bin Berti. Klick unten auf das Mikrofon und frag mich was!")
+st.title("🎓 Frag Berti")
+st.write("Hallo! Ich bin Berti. Lass uns gemeinsam etwas Neues lernen.")
 
 # Chat-Verlauf initialisieren
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "model", "parts": "Hallo! *Zisch* Ich bin bereit! Was wollen wir entdecken?"}
+        {"role": "model", "parts": "Hallo! Ich bin bereit. Welches Thema interessiert dich heute? Tiere, Sterne oder vielleicht Ritter?"}
     ]
 
-# Den bisherigen Chat anzeigen
+# Verlauf anzeigen
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["parts"])
 
-# --- 6. AUDIO EINGABE & VERARBEITUNG ---
-audio_value = st.audio_input("Sprich mit Berti")
+# --- 6. AUDIO LOGIK MIT GEDÄCHTNIS ---
+audio_value = st.audio_input("Deine Antwort / Deine Frage:")
 
 if audio_value:
-    # A) Audio verarbeiten und anzeigen
+    # A) Audio anzeigen
     with st.chat_message("user"):
         st.write("🎤 *(Audio Nachricht gesendet)*")
     st.session_state.messages.append({"role": "user", "parts": "🎤 *(Audio Nachricht)*"})
 
-    # B) Lade-Animation anzeigen
-    with st.spinner('Berti denkt nach... *Ratter Ratter*'):
+    # B) Kontext bauen (Was hat Berti zuletzt gesagt?)
+    # Wir holen die letzte Antwort des Bots, damit er weiß, worum es geht
+    last_bot_response = ""
+    if len(st.session_state.messages) > 1:
+        # Suche rückwärts nach der letzten Model-Nachricht
+        for msg in reversed(st.session_state.messages[:-1]):
+            if msg["role"] == "model":
+                last_bot_response = msg["parts"]
+                break
+    
+    # C) Nachdenken
+    with st.spinner('Berti hört zu und denkt nach...'):
         try:
-            # C) Anfrage an Gemini senden (Multimodal: Audio + Prompt)
-            response = model.generate_content([
-                system_prompt, 
-                "Antworte dem Kind auf diese Audio-Aufnahme. Sei lustig!", 
+            # Wir bauen einen Prompt, der den Kontext enthält
+            full_prompt_parts = [
+                system_prompt,
+                f"Kontext (Das hast du das Kind gerade gefragt): {last_bot_response}",
+                "Antworte dem Kind jetzt auf seine Audio-Eingabe. Führe den Dialog weiter:",
                 {"mime_type": "audio/mp3", "data": audio_value.getvalue()}
-            ])
-            
+            ]
+
+            response = model.generate_content(full_prompt_parts)
             bot_text = response.text
 
-            # D) Antwort anzeigen
+            # D) Text Antwort anzeigen
             with st.chat_message("model"):
                 st.markdown(bot_text)
             
-            # E) Text zu Audio umwandeln
+            # E) Audio generieren
             tts = gTTS(text=bot_text, lang='de')
             audio_fp = io.BytesIO()
             tts.write_to_fp(audio_fp)
             
-            # WICHTIG: Wir holen uns jetzt die rohen Bytes, das ist stabiler für den Browser
+            # WICHTIG: Bytes für den Browser vorbereiten
             audio_bytes = audio_fp.getvalue()
             
-            # F) Audio automatisch abspielen
+            # F) Abspielen
             st.audio(audio_bytes, format='audio/mp3', autoplay=True)
 
-            # G) Antwort im Verlauf speichern
+            # G) Speichern
             st.session_state.messages.append({"role": "model", "parts": bot_text})
 
         except Exception as e:
-            st.error(f"Oh nein, Berti hat einen Schluckauf! *Hicks* (Fehler: {str(e)})")
+            st.error(f"Ein kleiner Fehler ist aufgetreten: {str(e)}")
 
 # Reset Button
 with st.sidebar:
-    if st.button("Neues Gespräch starten 🔄"):
+    if st.button("Neues Thema starten 🔄"):
         st.session_state.messages = []
         st.rerun()
