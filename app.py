@@ -16,12 +16,12 @@ genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 # --- 3. SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "model", "parts": "Hallo! Ich bin Berti. Ich bin gespannt, was wir heute erforschen. Hast du eine Frage oder eine Idee?"}
+        {"role": "model", "parts": "Hallo! Ich bin Berti. Hast du eine Frage oder eine Idee? 🦁"}
     ]
 if "audio_key" not in st.session_state:
     st.session_state.audio_key = 0
 
-# WICHTIG: Wir trennen jetzt Daten und Autoplay-Status
+# Audio-Daten und Autoplay-Trigger
 if "last_audio_data" not in st.session_state:
     st.session_state.last_audio_data = None
 if "trigger_autoplay" not in st.session_state:
@@ -33,20 +33,31 @@ try:
 except Exception as e:
     st.error(f"Fehler: {e}")
 
-# --- 5. PÄDAGOGISCHES PROFIL ---
+# --- 5. PÄDAGOGISCHES PROFIL (Mit Spiegelung für Transkript) ---
 system_prompt = """
 Du bist "Berti", ein Forschungs-Begleiter für ein 6-jähriges Kind.
-DEIN ZIEL: Ermöglichungsdidaktik & Konstruktivismus.
+DEIN ZIEL: Wissen vermitteln + Mitdenken anregen (80/20 Regel).
+
+WICHTIG FÜR DAS TRANSKRIPT: 
+Da das Kind oft per Audio fragt, **wiederhole den Kern der Frage** kurz am Anfang deiner Antwort.
+Beispiel: "Du fragst dich, warum der Himmel blau ist? Das liegt daran..."
 
 REGELN:
-1. **EMOJIS:** Im Text erlaubt.
-2. **KEINE BEGRÜSSUNG:** Direkt zum Thema.
-3. **SPRACHE:** Einfach, klar, duzt das Kind.
+1. **EMOJIS:** Erlaubt.
+2. **SPRACHE:** Einfach, herzlich, duzt das Kind.
 
-ABLAUF:
-SZENARIO A (Neue Frage): Keine Erklärung! Gib einen Hinweis + Forscherfrage.
-SZENARIO B (Antwort Kind): Loben + kurzes Wissen + Transferfrage.
-SZENARIO C (Geschichten): Held löst Problem durch Empathie.
+ABLAUF (80/20 Regel):
+SZENARIO A (Neue Frage):
+- Beginne mit: "Du möchtest wissen, [Thema]..." oder "Ah, du fragst..."
+- Erkläre 80% (Was/Wie).
+- Stelle eine Forscherfrage zum "Warum" oder einem Detail.
+
+SZENARIO B (Antwort des Kindes auf deine Frage):
+- Loben ("Genau!").
+- Erkläre die restlichen 20% (Lösung).
+
+SZENARIO C (Geschichten/Witze):
+- Geschichten: Held löst Problem durch Empathie.
 """
 
 # --- 6. HILFSFUNKTIONEN ---
@@ -55,7 +66,7 @@ def clean_text_for_audio(text):
     text = re.sub(r'[^\w\s,?.!äöüÄÖÜß:;–-]', '', text)
     return text.strip()
 
-# --- 7. UI-LAYOUT (BUTTONS OBEN) ---
+# --- 7. UI-LAYOUT ---
 st.title("🎓 Frag Berti")
 
 col1, col2, col3 = st.columns(3)
@@ -65,37 +76,22 @@ trigger_geschichte = col3.button("🦸 Geschichte", use_container_width=True)
 
 st.markdown("---")
 
-# --- 8. CHAT VERLAUF ---
+# --- 8. CHAT VERLAUF (VISUELL) ---
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["parts"])
 
-# --- 9. AUDIO PLAYER (BUG FIXED) ---
-# Hier ist der Trick: Wir schauen auf die Flagge 'trigger_autoplay'.
-# Nur wenn die wahr ist, starten wir automatisch. Sonst zeigen wir den Player nur an (stumm).
-
+# --- 9. AUDIO PLAYER ---
 if st.session_state.last_audio_data:
     should_play = st.session_state.trigger_autoplay
-    
-    st.audio(
-        st.session_state.last_audio_data, 
-        format='audio/mpeg', 
-        autoplay=should_play
-    )
-    
-    # WICHTIG: Sofort den Autoplay-Schalter für die Zukunft ausschalten!
-    # Das Audio bleibt da (Daten), aber beim nächsten Klick (Record) bleibt es stumm.
+    st.audio(st.session_state.last_audio_data, format='audio/mpeg', autoplay=should_play)
     st.session_state.trigger_autoplay = False
-
 
 # --- 10. EINGABE BEREICH ---
 st.write("") 
 st.write("### 🎙️ Deine Forschungs-Frage:")
 
-# A) AUDIO EINGABE
 audio_value = st.audio_input("Aufnahme starten:", key=f"rec_{st.session_state.audio_key}")
-
-# B) TEXT EINGABE
 text_input = st.chat_input("Oder schreibe hier...")
 
 # --- 11. VERARBEITUNG ---
@@ -104,13 +100,13 @@ content_type = None
 prompt_instruction = ""
 
 if trigger_witz:
-    user_content = "Erzähle mir einen Witz, lass mich raten."
+    user_content = "Erzähle mir einen Witz."
     content_type = "text"
 elif trigger_fakt:
-    user_content = "Nenne ein Natur-Phänomen. Frage mich, wie es funktioniert."
+    user_content = "Nenne ein Natur-Phänomen. Erkläre es grob, frage nach dem Detail."
     content_type = "text"
 elif trigger_geschichte:
-    user_content = "Geschichte über Empathie. Frage mich am Ende was ich getan hätte."
+    user_content = "Geschichte über Empathie."
     content_type = "text"
 elif audio_value:
     user_content = audio_value
@@ -126,7 +122,8 @@ if user_content:
             st.write("🎤 *(Sprachnachricht)*")
             user_msg_log = "🎤 *(Sprachnachricht)*"
             user_data_part = {"mime_type": "audio/wav", "data": user_content.getvalue()}
-            prompt_instruction = "Höre dir das Kind an. Antworte pädagogisch:"
+            # WICHTIG: Instruktion für Berti, die Frage zu wiederholen
+            prompt_instruction = "Höre dir das Kind an. WICHTIG: Beginne deine Antwort damit, zu sagen, was du verstanden hast (z.B. 'Du fragst, ...'). Dann antworte nach Szenario A oder B."
         else:
             st.markdown(user_content)
             user_msg_log = user_content
@@ -164,15 +161,25 @@ if user_content:
                 audio_fp = io.BytesIO()
                 tts.write_to_fp(audio_fp)
                 
-                # Speichern der DATEN
+                # Speichern & Trigger
                 st.session_state.last_audio_data = audio_fp.getvalue()
-                # Setzen des SCHALTERS auf AN (nur für jetzt!)
                 st.session_state.trigger_autoplay = True
-                
-                # Reset Input Widget
                 st.session_state.audio_key += 1
-                
                 st.rerun()
 
         except Exception as e:
             st.error(f"Fehler: {e}")
+
+# --- 12. TRANSKRIPT FÜR ELTERN (NEU!) ---
+st.markdown("---")
+with st.expander("📝 Transkript & Verlauf (für Eltern)"):
+    st.info("Hier kannst du nachlesen, was besprochen wurde. Bei Audio-Aufnahmen wiederholt Berti meist die Frage im ersten Satz.")
+    
+    for i, msg in enumerate(st.session_state.messages):
+        role = "🤖 Berti" if msg["role"] == "model" else "👤 Kind"
+        content = msg["parts"]
+        
+        # Leichte Formatierung für bessere Lesbarkeit
+        st.markdown(f"**{role}:**")
+        st.text(content) # Nutzung von st.text verhindert Markdown-Interpretation (cleaner look)
+        st.markdown("---")
