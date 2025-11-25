@@ -89,6 +89,9 @@ if audio_value:
             audio_fp = io.BytesIO()
             tts.write_to_fp(audio_fp)
             
+            # WICHTIG: Datei-Zeiger zurücksetzen!
+            audio_fp.seek(0)
+            
             # F) Audio automatisch abspielen
             st.audio(audio_fp, format='audio/mp3', autoplay=True)
 
