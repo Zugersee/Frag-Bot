@@ -198,4 +198,3 @@ with st.expander("📝 Transkript & Verlauf (für Eltern)"):
         st.markdown(f"**{role}:**")
         st.text(msg["parts"])
         st.markdown("---")
-        
